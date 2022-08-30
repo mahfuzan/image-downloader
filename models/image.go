@@ -1,6 +1,8 @@
 package models
 
 import (
+	"log"
+
 	"github.com/jmoiron/sqlx"
 	"github.com/mahfuzan/image-downloader/config"
 )
@@ -30,13 +32,13 @@ func init() {
 	if err != nil {
 		_, err = db.Exec(schema)
 		if err != nil {
-			panic(err)
+			log.Println(err)
 		}
 	}
 
 	err = db.Ping()
 	if err != nil {
-		panic(err)
+		log.Println(err)
 	}
 }
 

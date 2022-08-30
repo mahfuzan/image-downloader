@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,18 +18,56 @@ type Url struct {
 	Url string `json:"url"`
 }
 
+type Response struct {
+	Success bool           `json:"success"`
+	Data    []models.Image `json:"data"`
+	Error   ErrorResponse  `json:"error"`
+}
+
+type ErrorResponse struct {
+	Code string `json:"code"`
+	Desc string `json:"desc"`
+}
+
 func DownloadImage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	response := Response{
+		Success: false,
+	}
+
 	// read body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		panic(err)
+		response.Error.Code = "FailedReadData"
+		response.Error.Desc = "Failed to read response body data"
+
+		responseData, err := json.Marshal(response)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Unknown error"))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(responseData)
+		return
 	}
 
 	// decode json
 	var url Url
 	err = json.Unmarshal(body, &url)
 	if err != nil {
-		panic(err)
+		response.Error.Code = "FailedUnmarshal"
+		response.Error.Desc = "Failed to unmarshal data"
+
+		responseData, err := json.Marshal(response)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Unknown error"))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(responseData)
+		return
 	}
 
 	// save file to storage
@@ -38,30 +75,49 @@ func DownloadImage(w http.ResponseWriter, r *http.Request) {
 	filePath := "./images/" + filename
 	err = saveFile(url.Url, filename, filePath)
 	if err != nil {
-		log.Fatal(err)
+		response.Error.Code = "FailedSaveFile"
+		response.Error.Desc = "Failed to save file to storage"
+
+		responseData, err := json.Marshal(response)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Unknown error"))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(responseData)
+		return
 	}
 	fmt.Printf("File %s successfully downloaded\n", filename)
 
 	// save to database
-	res, err := models.SaveToDatabase(url.Url, filename, filePath)
+	imageData, err := models.SaveToDatabase(url.Url, filename, filePath)
 	if err != nil {
-		w.Header().Set("Content-Type", "pkglication/json")
+		response.Error.Code = "FailedInsertDb"
+		response.Error.Desc = "Failed to insert data to database"
+
+		responseData, err := json.Marshal(response)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Unknown error"))
+			return
+		}
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte{})
+		w.Write(responseData)
 		return
 	}
 
-	result, err := json.Marshal(res)
+	image := []models.Image{imageData}
+	response.Success = true
+	response.Data = image
+	responseData, err := json.Marshal(response)
 	if err != nil {
-		w.Header().Set("Content-Type", "pkglication/json")
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte{})
+		w.Write([]byte("Unknown error"))
 		return
 	}
-
-	w.Header().Set("Content-Type", "pkglication/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(result)
+	w.Write(responseData)
 }
 
 func saveFile(url string, filename string, filePath string) error {
@@ -92,78 +148,86 @@ func saveFile(url string, filename string, filePath string) error {
 }
 
 func GetImageList(w http.ResponseWriter, r *http.Request) {
-	result, err := models.GetList()
+	w.Header().Set("Content-Type", "application/json")
+	response := Response{
+		Success: false,
+	}
+
+	imageList, err := models.GetList()
 	if err != nil {
-		var failedResponse = map[string]string{
-			"success": "false",
-			"message": "Data not found",
-		}
-		res, err := json.Marshal(failedResponse)
+		response.Error.Code = "RecordNotFound"
+		response.Error.Desc = "Record not found in database"
+		res, err := json.Marshal(response)
 		if err != nil {
-			w.Header().Set("Content-Type", "pkglication/json")
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte{})
+			w.Write([]byte("Unknown Error"))
 			return
 		} else {
-			w.Header().Set("Content-Type", "pkglication/json")
 			w.WriteHeader(http.StatusNotFound)
 			w.Write(res)
 			return
 		}
 	}
 
-	res, err := json.Marshal(result)
+	response.Success = true
+	response.Data = imageList
+	responseData, err := json.Marshal(response)
 	if err != nil {
-		w.Header().Set("Content-Type", "pkglication/json")
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte{})
+		w.Write([]byte("Unknown Error"))
 		return
 	}
-
-	w.Header().Set("Content-Type", "pkglication/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(res)
+	w.Write(responseData)
 }
 
 func GetImageById(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	response := Response{
+		Success: false,
+	}
+
 	vars := mux.Vars(r)
 	id, err := strconv.ParseInt(vars["id"], 0, 0)
 	if err != nil {
-		w.Header().Set("Content-Type", "pkglication/json")
+		response.Error.Code = "FailedParsing"
+		response.Error.Desc = "Failed to parse parameter"
+
+		res, err := json.Marshal(response)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Unknown error"))
+			return
+		}
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte{})
+		w.Write(res)
 		return
 	}
 
-	result, err := models.GetById(id)
+	imageData, err := models.GetById(id)
 	if err != nil {
-		var failedResponse = map[string]string{
-			"success": "false",
-			"message": "Data not found",
-		}
-		res, err := json.Marshal(failedResponse)
+		response.Error.Code = "RecordNotFound"
+		response.Error.Desc = "Record not found in database"
+		res, err := json.Marshal(response)
 		if err != nil {
-			w.Header().Set("Content-Type", "pkglication/json")
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte{})
+			w.Write([]byte("Unknown error"))
 			return
 		}
-
-		w.Header().Set("Content-Type", "pkglication/json")
 		w.WriteHeader(http.StatusNotFound)
 		w.Write(res)
 		return
 	}
 
-	res, err := json.Marshal(result)
+	image := []models.Image{imageData}
+	response.Success = true
+	response.Data = image
+	responseData, err := json.Marshal(response)
 	if err != nil {
-		w.Header().Set("Content-Type", "pkglication/json")
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte{})
+		w.Write([]byte("Unknown Error"))
 		return
 	}
-
-	w.Header().Set("Content-Type", "pkglication/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(res)
+	w.Write(responseData)
 }
