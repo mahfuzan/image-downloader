@@ -20,8 +20,8 @@ type Url struct {
 
 type Response struct {
 	Success bool           `json:"success"`
-	Data    []models.Image `json:"data"`
-	Error   ErrorResponse  `json:"error"`
+	Data    interface{}    `json:"data"`
+	Error   *ErrorResponse `json:"error"`
 }
 
 type ErrorResponse struct {
@@ -29,26 +29,27 @@ type ErrorResponse struct {
 	Desc string `json:"desc"`
 }
 
-func DownloadImage(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	response := Response{
-		Success: false,
-	}
+const ERR_FAILED_READ_DATA_CODE string = "FailedReadData"
+const ERR_FAILED_READ_DATA_DESC string = "Failed to read response body data"
+const ERR_FAILED_UNMARSHAL_CODE string = "FailedUnmarshal"
+const ERR_FAILED_UNMARSHAL_DESC string = "Failed to unmarshal data"
+const ERR_FAILED_SAVE_FILE_CODE string = "FailedSaveFile"
+const ERR_FAILED_SAVE_FILE_DESC string = "Failed to save file to storage"
+const ERR_FAILED_INSERT_DB_CODE string = "FailedInsertDb"
+const ERR_FAILED_INSERT_DB_DESC string = "Failed to insert data to database"
+const ERR_FAILED_GET_DATA_DB_CODE string = "FailedGetDb"
+const ERR_FAILED_GET_DATA_DB_DESC string = "Failed to get data from database"
+const ERR_NOT_FOUND_CODE string = "RecordNotFound"
+const ERR_NOT_FOUND_DESC string = "Record not found in database"
+const ERR_FAILED_PARSING_CODE string = "FailedParsing"
+const ERR_FAILED_PARSING_DESC string = "Failed to parse parameter"
+const ERR_UNKOWN string = "Unknown Error"
 
+func DownloadImage(w http.ResponseWriter, r *http.Request) {
 	// read body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		response.Error.Code = "FailedReadData"
-		response.Error.Desc = "Failed to read response body data"
-
-		responseData, err := json.Marshal(response)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Unknown error"))
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(responseData)
+		returnErrorResponse(w, http.StatusBadRequest, ERR_FAILED_READ_DATA_CODE, ERR_FAILED_READ_DATA_DESC)
 		return
 	}
 
@@ -56,17 +57,7 @@ func DownloadImage(w http.ResponseWriter, r *http.Request) {
 	var url Url
 	err = json.Unmarshal(body, &url)
 	if err != nil {
-		response.Error.Code = "FailedUnmarshal"
-		response.Error.Desc = "Failed to unmarshal data"
-
-		responseData, err := json.Marshal(response)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Unknown error"))
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(responseData)
+		returnErrorResponse(w, http.StatusBadRequest, ERR_FAILED_UNMARSHAL_CODE, ERR_FAILED_UNMARSHAL_DESC)
 		return
 	}
 
@@ -75,17 +66,7 @@ func DownloadImage(w http.ResponseWriter, r *http.Request) {
 	filePath := "./images/" + filename
 	err = saveFile(url.Url, filename, filePath)
 	if err != nil {
-		response.Error.Code = "FailedSaveFile"
-		response.Error.Desc = "Failed to save file to storage"
-
-		responseData, err := json.Marshal(response)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Unknown error"))
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(responseData)
+		returnErrorResponse(w, http.StatusBadRequest, ERR_FAILED_SAVE_FILE_CODE, ERR_FAILED_SAVE_FILE_DESC)
 		return
 	}
 	fmt.Printf("File %s successfully downloaded\n", filename)
@@ -93,31 +74,15 @@ func DownloadImage(w http.ResponseWriter, r *http.Request) {
 	// save to database
 	imageData, err := models.SaveToDatabase(url.Url, filename, filePath)
 	if err != nil {
-		response.Error.Code = "FailedInsertDb"
-		response.Error.Desc = "Failed to insert data to database"
-
-		responseData, err := json.Marshal(response)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Unknown error"))
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(responseData)
+		returnErrorResponse(w, http.StatusBadRequest, ERR_FAILED_INSERT_DB_CODE, ERR_FAILED_INSERT_DB_DESC)
 		return
 	}
 
-	image := []models.Image{imageData}
-	response.Success = true
-	response.Data = image
-	responseData, err := json.Marshal(response)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Unknown error"))
-		return
+	response := Response{
+		Success: true,
+		Data:    imageData,
 	}
-	w.WriteHeader(http.StatusOK)
-	w.Write(responseData)
+	returnResponse(w, http.StatusOK, response)
 }
 
 func saveFile(url string, filename string, filePath string) error {
@@ -148,86 +113,63 @@ func saveFile(url string, filename string, filePath string) error {
 }
 
 func GetImageList(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	response := Response{
-		Success: false,
-	}
-
 	imageList, err := models.GetList()
 	if err != nil {
-		response.Error.Code = "RecordNotFound"
-		response.Error.Desc = "Record not found in database"
-		res, err := json.Marshal(response)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Unknown Error"))
-			return
-		} else {
-			w.WriteHeader(http.StatusNotFound)
-			w.Write(res)
-			return
-		}
-	}
-
-	response.Success = true
-	response.Data = imageList
-	responseData, err := json.Marshal(response)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Unknown Error"))
+		returnErrorResponse(w, http.StatusBadRequest, ERR_FAILED_GET_DATA_DB_CODE, ERR_FAILED_GET_DATA_DB_DESC)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	w.Write(responseData)
+
+	response := Response{
+		Success: true,
+		Data:    imageList,
+	}
+	returnResponse(w, http.StatusOK, response)
 }
 
 func GetImageById(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	response := Response{
-		Success: false,
-	}
-
 	vars := mux.Vars(r)
 	id, err := strconv.ParseInt(vars["id"], 0, 0)
 	if err != nil {
-		response.Error.Code = "FailedParsing"
-		response.Error.Desc = "Failed to parse parameter"
-
-		res, err := json.Marshal(response)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Unknown error"))
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(res)
+		returnErrorResponse(w, http.StatusBadRequest, ERR_FAILED_PARSING_CODE, ERR_FAILED_PARSING_DESC)
 		return
 	}
 
 	imageData, err := models.GetById(id)
 	if err != nil {
-		response.Error.Code = "RecordNotFound"
-		response.Error.Desc = "Record not found in database"
-		res, err := json.Marshal(response)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Unknown error"))
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-		w.Write(res)
+		returnErrorResponse(w, http.StatusNotFound, ERR_NOT_FOUND_CODE, ERR_NOT_FOUND_DESC)
 		return
 	}
 
-	image := []models.Image{imageData}
-	response.Success = true
-	response.Data = image
+	response := Response{
+		Success: true,
+		Data:    imageData,
+	}
+	returnResponse(w, http.StatusOK, response)
+}
+
+func returnResponse(w http.ResponseWriter, httpStatus int, response any) {
 	responseData, err := json.Marshal(response)
 	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Unknown Error"))
-		return
+		w.Write([]byte(ERR_UNKOWN))
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(httpStatus)
+		w.Write(responseData)
 	}
-	w.WriteHeader(http.StatusOK)
-	w.Write(responseData)
+}
+
+func returnErrorResponse(w http.ResponseWriter, httpStatus int, code string, desc string) {
+	errorData := ErrorResponse{
+		Code: code,
+		Desc: desc,
+	}
+
+	response := Response{
+		Success: false,
+		Error:   &errorData,
+	}
+
+	returnResponse(w, httpStatus, response)
 }
