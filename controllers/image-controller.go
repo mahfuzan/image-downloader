@@ -7,10 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 
-	"github.com/gorilla/mux"
 	"github.com/mahfuzan/image-downloader/models"
 )
 
@@ -62,8 +62,9 @@ func DownloadImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// save file to storage
-	filename := filepath.Base(url.Url)
-	filePath := "./images/" + filename
+	filename := path.Base(url.Url)
+	homeDir, _ := os.UserHomeDir()
+	filePath := filepath.Join(homeDir, "Downloads", filename)
 	err = saveFile(url.Url, filename, filePath)
 	if err != nil {
 		returnErrorResponse(w, http.StatusBadRequest, ERR_FAILED_SAVE_FILE_CODE, ERR_FAILED_SAVE_FILE_DESC)
@@ -127,8 +128,8 @@ func GetImageList(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetImageById(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id, err := strconv.ParseInt(vars["id"], 0, 0)
+	varId := path.Base(r.URL.String())
+	id, err := strconv.ParseInt(varId, 0, 0)
 	if err != nil {
 		returnErrorResponse(w, http.StatusBadRequest, ERR_FAILED_PARSING_CODE, ERR_FAILED_PARSING_DESC)
 		return
