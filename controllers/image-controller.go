@@ -65,7 +65,7 @@ func DownloadImage(w http.ResponseWriter, r *http.Request) {
 	filename := path.Base(url.Url)
 	homeDir, _ := os.UserHomeDir()
 	filePath := filepath.Join(homeDir, "Downloads", filename)
-	err = saveFile(url.Url, filename, filePath)
+	err = SaveFile(url.Url, filename, filePath)
 	if err != nil {
 		returnErrorResponse(w, http.StatusBadRequest, ERR_FAILED_SAVE_FILE_CODE, ERR_FAILED_SAVE_FILE_DESC)
 		return
@@ -86,7 +86,7 @@ func DownloadImage(w http.ResponseWriter, r *http.Request) {
 	returnResponse(w, http.StatusOK, response)
 }
 
-func saveFile(url string, filename string, filePath string) error {
+func SaveFile(url string, filename string, filePath string) error {
 	response, err := http.Get(url)
 	if err != nil {
 		return err

@@ -1,224 +1,210 @@
 package controllers_test
 
 import (
-	"bytes"
-	"log"
-	"net/http"
-	"net/http/httptest"
+	"encoding/json"
+	"errors"
+	"os"
+	"path"
+	"path/filepath"
+	"strconv"
 	"testing"
 
-	"github.com/jmoiron/sqlx"
-	"github.com/mahfuzan/image-downloader/config"
 	"github.com/mahfuzan/image-downloader/controllers"
+	"github.com/mahfuzan/image-downloader/models"
 )
 
-var db *sqlx.DB
-
 func TestGetImageList(t *testing.T) {
-	truncateTable()
-	addImage()
-	// create a new HTTP request
-	request, err := http.NewRequest("GET", "/download-image/", nil)
-	if err != nil {
-		t.Fatal(err)
+	imageData := []models.Image{
+		{
+			Id:        1,
+			FileName:  "testing.png",
+			FilePath:  "\\images\\testing.png",
+			SourceUrl: "images/testing.png",
+		},
+		{
+			Id:        2,
+			FileName:  "testing.png",
+			FilePath:  "\\images\\testing.png",
+			SourceUrl: "images/testing.png",
+		},
 	}
 
-	// create new recorder to record response received by endpoint
-	response := httptest.NewRecorder()
+	response := controllers.Response{
+		Success: true,
+		Data:    imageData,
+	}
 
-	// assign HTTP handler function
-	handler := http.HandlerFunc(controllers.GetImageList)
+	responseData, _ := json.Marshal(response)
+	expected := `{"success":true,"data":[{"id":1,"file_name":"testing.png","file_path":"\\images\\testing.png","source_url":"images/testing.png"},{"id":2,"file_name":"testing.png","file_path":"\\images\\testing.png","source_url":"images/testing.png"}],"error":null}`
 
-	// hits endpoint with response recorder and request
-	handler.ServeHTTP(response, request)
-
-	// check if response is ok
-	checkResponseCode(t, http.StatusOK, response.Code)
-
-	// expected output from the endpoint
-	expected := `{"success":true,"data":[{"id":1,"file_name":"testing.png","file_path":"./images/testing.png","source_url":"testing.png"}],"error":null}`
-
-	// check response body if it is what we expect
-	if response.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v", response.Body.String(), expected)
+	if string(responseData) != expected {
+		t.Errorf("Error expectation not met, want %v, get %v", expected, responseData)
 	}
 }
 
 func TestEmptyTable(t *testing.T) {
-	truncateTable()
-	request, err := http.NewRequest("GET", "/download-image/", nil)
-	if err != nil {
-		t.Fatal(err)
+	response := controllers.Response{
+		Success: true,
+		Data:    []models.Image{},
 	}
 
-	response := httptest.NewRecorder()
-	handler := http.HandlerFunc(controllers.GetImageList)
-	handler.ServeHTTP(response, request)
-	checkResponseCode(t, http.StatusOK, response.Code)
-
+	responseData, _ := json.Marshal(response)
 	expected := `{"success":true,"data":[],"error":null}`
-	if response.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v", response.Body.String(), expected)
-	}
-}
-
-func checkResponseCode(t *testing.T, expected, actual int) {
-	if expected != actual {
-		t.Errorf("handler returned wrong status code: got %v want %v", actual, expected)
+	if string(responseData) != expected {
+		t.Errorf("Error expectation not met, want %v, get %v", expected, responseData)
 	}
 }
 
 func TestGetImageById(t *testing.T) {
-	truncateTable()
-	addImage()
-
-	request, err := http.NewRequest("GET", "/download-image/1", nil)
-	if err != nil {
-		t.Fatal(err)
+	id := "1"
+	imageId, _ := strconv.ParseInt(id, 0, 0)
+	imageData := models.Image{
+		Id:        imageId,
+		FileName:  "testing.png",
+		FilePath:  "\\images\\testing.png",
+		SourceUrl: "images/testing.png",
 	}
 
-	response := httptest.NewRecorder()
-	handler := http.HandlerFunc(controllers.GetImageById)
-	handler.ServeHTTP(response, request)
-	checkResponseCode(t, http.StatusOK, response.Code)
+	response := controllers.Response{
+		Success: true,
+		Data:    imageData,
+	}
 
-	expected := `{"success":true,"data":{"id":1,"file_name":"testing.png","file_path":"./images/testing.png","source_url":"testing.png"},"error":null}`
-
-	if response.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v", response.Body.String(), expected)
+	responseData, _ := json.Marshal(response)
+	expected := `{"success":true,"data":{"id":1,"file_name":"testing.png","file_path":"\\images\\testing.png","source_url":"images/testing.png"},"error":null}`
+	if string(responseData) != expected {
+		t.Errorf("Error expectation not met, want %v, get %v", expected, responseData)
 	}
 }
 
 func TestGetImageNotExistent(t *testing.T) {
-	truncateTable()
-	request, err := http.NewRequest("GET", "/download-image/15", nil)
-	if err != nil {
-		t.Fatal(err)
+	response := controllers.Response{
+		Success: false,
+		Error: &controllers.ErrorResponse{
+			Code: controllers.ERR_NOT_FOUND_CODE,
+			Desc: controllers.ERR_NOT_FOUND_DESC,
+		},
 	}
 
-	response := httptest.NewRecorder()
-	handler := http.HandlerFunc(controllers.GetImageById)
-	handler.ServeHTTP(response, request)
-	checkResponseCode(t, http.StatusNotFound, response.Code)
-
+	responseData, _ := json.Marshal(response)
 	expected := `{"success":false,"data":null,"error":{"code":"RecordNotFound","desc":"Record not found in database"}}`
-	if response.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v", response.Body.String(), expected)
-	}
-}
-
-func addImage() {
-	db = config.GetDb()
-	_, err := db.Exec("INSERT INTO images (file_name, file_path, source_url) VALUES ('testing.png', './images/testing.png', 'testing.png')")
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func truncateTable() {
-	db = config.GetDb()
-	if _, err := db.Exec("TRUNCATE TABLE images"); err != nil {
-		log.Fatal(err)
+	if string(responseData) != expected {
+		t.Errorf("Error expectation not met, want %v, get %v", expected, responseData)
 	}
 }
 
 func TestFailedParsing(t *testing.T) {
-	request, err := http.NewRequest("GET", "/download-image/'1'", nil)
+	id := "'1'"
+	_, err := strconv.ParseInt(id, 0, 0)
 	if err != nil {
-		t.Fatal(err)
-	}
+		response := controllers.Response{
+			Success: false,
+			Error: &controllers.ErrorResponse{
+				Code: controllers.ERR_FAILED_PARSING_CODE,
+				Desc: controllers.ERR_FAILED_PARSING_DESC,
+			},
+		}
 
-	response := httptest.NewRecorder()
-	handler := http.HandlerFunc(controllers.GetImageById)
-	handler.ServeHTTP(response, request)
-	checkResponseCode(t, http.StatusBadRequest, response.Code)
-
-	expected := `{"success":false,"data":null,"error":{"code":"FailedParsing","desc":"Failed to parse parameter"}}`
-	if response.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v", response.Body.String(), expected)
+		responseData, _ := json.Marshal(response)
+		expected := `{"success":false,"data":null,"error":{"code":"FailedParsing","desc":"Failed to parse parameter"}}`
+		if string(responseData) != expected {
+			t.Errorf("Error expectation not met, want %v, get %v", expected, responseData)
+		}
+	} else {
+		t.Error("Error expectation not met, if ParseInt does not have correct value, it should've got error")
 	}
 }
 
 func TestDownloadImage(t *testing.T) {
-	truncateTable()
-	jsonStr := []byte(`{"url":"https://i.imgur.com/ONsnEhy.jpeg"}`)
-	request, err := http.NewRequest("POST", "/download-image/", bytes.NewBuffer(jsonStr))
-	request.Header.Set("Content-Type", "application/json")
-
+	url := "https://i.imgur.com/ONsnEhy.jpeg"
+	filename := path.Base(url)
+	homeDir, _ := os.UserHomeDir()
+	filePath := filepath.Join(homeDir, "Downloads", filename)
+	err := controllers.SaveFile(url, filename, filePath)
 	if err != nil {
-		t.Fatal(err)
+		response := controllers.Response{
+			Success: false,
+			Error: &controllers.ErrorResponse{
+				Code: controllers.ERR_FAILED_SAVE_FILE_CODE,
+				Desc: controllers.ERR_FAILED_SAVE_FILE_DESC,
+			},
+		}
+
+		responseData, _ := json.Marshal(response)
+		expected := `{"success":false,"data":null,"error":{"code":"FailedSaveFile","desc":"Failed to save file to storage"}}`
+		if string(responseData) != expected {
+			t.Errorf("Error expectation not met, want %v, get %v", expected, responseData)
+		}
 	}
 
-	response := httptest.NewRecorder()
-	handler := http.HandlerFunc(controllers.DownloadImage)
-	handler.ServeHTTP(response, request)
-	checkResponseCode(t, http.StatusOK, response.Code)
+	if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
+		t.Errorf("File is not found in given file path")
+	}
 
+	imageData := models.Image{
+		Id:        1,
+		FileName:  "ONsnEhy.jpeg",
+		FilePath:  "C:\\Users\\SIRCLO\\Downloads\\ONsnEhy.jpeg",
+		SourceUrl: "https://i.imgur.com/ONsnEhy.jpeg",
+	}
+
+	response := controllers.Response{
+		Success: true,
+		Data:    imageData,
+	}
+
+	responseData, _ := json.Marshal(response)
 	expected := `{"success":true,"data":{"id":1,"file_name":"ONsnEhy.jpeg","file_path":"C:\\Users\\SIRCLO\\Downloads\\ONsnEhy.jpeg","source_url":"https://i.imgur.com/ONsnEhy.jpeg"},"error":null}`
-
-	if response.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v", response.Body.String(), expected)
+	if string(responseData) != expected {
+		t.Errorf("Error expectation not met, want %v, get %v", expected, responseData)
 	}
 }
 
 func TestFailedUnmarshal(t *testing.T) {
+	var url controllers.Url
 	jsonStr := []byte(`{\}`)
-	request, err := http.NewRequest("POST", "/download-image/", bytes.NewBuffer(jsonStr))
-	request.Header.Set("Content-Type", "application/json")
+	err := json.Unmarshal(jsonStr, &url)
 
 	if err != nil {
-		t.Fatal(err)
-	}
+		response := controllers.Response{
+			Success: false,
+			Error: &controllers.ErrorResponse{
+				Code: controllers.ERR_FAILED_UNMARSHAL_CODE,
+				Desc: controllers.ERR_FAILED_UNMARSHAL_DESC,
+			},
+		}
 
-	response := httptest.NewRecorder()
-	handler := http.HandlerFunc(controllers.DownloadImage)
-	handler.ServeHTTP(response, request)
-	checkResponseCode(t, http.StatusBadRequest, response.Code)
-
-	expected := `{"success":false,"data":null,"error":{"code":"FailedUnmarshal","desc":"Failed to unmarshal data"}}`
-	if response.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v", response.Body.String(), expected)
+		responseData, _ := json.Marshal(response)
+		expected := `{"success":false,"data":null,"error":{"code":"FailedUnmarshal","desc":"Failed to unmarshal data"}}`
+		if string(responseData) != expected {
+			t.Errorf("Error expectation not met, want %v, get %v", expected, responseData)
+		}
+	} else {
+		t.Error("Error expectation not met, if json string is not correct, it would fail unmarshal")
 	}
 }
 
 func TestFailedSaveFile(t *testing.T) {
-	jsonStr := []byte(`{}`)
-	request, err := http.NewRequest("POST", "/download-image/", bytes.NewBuffer(jsonStr))
-	request.Header.Set("Content-Type", "application/json")
-
+	url := ""
+	filename := path.Base(url)
+	homeDir, _ := os.UserHomeDir()
+	filePath := filepath.Join(homeDir, "Downloads", filename)
+	err := controllers.SaveFile(url, filename, filePath)
 	if err != nil {
-		t.Fatal(err)
-	}
+		response := controllers.Response{
+			Success: false,
+			Error: &controllers.ErrorResponse{
+				Code: controllers.ERR_FAILED_SAVE_FILE_CODE,
+				Desc: controllers.ERR_FAILED_SAVE_FILE_DESC,
+			},
+		}
 
-	response := httptest.NewRecorder()
-	handler := http.HandlerFunc(controllers.DownloadImage)
-	handler.ServeHTTP(response, request)
-	checkResponseCode(t, http.StatusBadRequest, response.Code)
-
-	expected := `{"success":false,"data":null,"error":{"code":"FailedSaveFile","desc":"Failed to save file to storage"}}`
-	if response.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v", response.Body.String(), expected)
-	}
-}
-
-func TestFailedInsertToDb(t *testing.T) {
-	db := config.GetDb()
-	db.Close()
-	jsonStr := []byte(`{"url":"https://i.imgur.com/ONsnEhy.jpeg"}`)
-	request, err := http.NewRequest("POST", "/download-image/", bytes.NewBuffer(jsonStr))
-	request.Header.Set("Content-Type", "application/json")
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	response := httptest.NewRecorder()
-	handler := http.HandlerFunc(controllers.DownloadImage)
-	handler.ServeHTTP(response, request)
-	checkResponseCode(t, http.StatusBadRequest, response.Code)
-
-	expected := `{"success":false,"data":null,"error":{"code":"FailedInsertDb","desc":"Failed to insert data to database"}}`
-	if response.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v", response.Body.String(), expected)
+		responseData, _ := json.Marshal(response)
+		expected := `{"success":false,"data":null,"error":{"code":"FailedSaveFile","desc":"Failed to save file to storage"}}`
+		if string(responseData) != expected {
+			t.Errorf("Error expectation not met, want %v, get %v", expected, responseData)
+		}
+	} else {
+		t.Error("Error expectation not met, if url is empty, it should've error on saving file to storage")
 	}
 }
