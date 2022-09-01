@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/gorilla/mux"
 	"github.com/mahfuzan/image-downloader/models"
 )
 
@@ -128,7 +129,7 @@ func GetImageList(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetImageById(w http.ResponseWriter, r *http.Request) {
-	varId := path.Base(r.URL.String())
+	varId := mux.Vars(r)["id"]
 	id, err := strconv.ParseInt(varId, 0, 0)
 	if err != nil {
 		returnErrorResponse(w, http.StatusBadRequest, ERR_FAILED_PARSING_CODE, ERR_FAILED_PARSING_DESC)
